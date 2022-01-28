@@ -1,0 +1,498 @@
+---
+title: "Turkey Covid-19 and Vaccination Statistics"
+author: "OMS"
+date: "30 01 2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r echo=FALSE, results='asis', out.width='90%', fig.cap=''}
+knitr::include_graphics('images/logo_covid.png')  
+```
+
+### ***Team OMS***
+  - ***090200741 Semih ÇETİN***
+
+## ***Project Description***
+  *In this project is to analyze the spread and vaccine distribution of Covid-19 in Turkey. This virus, which started in 2020 and still poses a life risk with its various variants, has changed our lives in every way. With the data I have obtained, I am trying to reveal how many people the virus has made sick in Turkey, how many people have died, how many people have been sick and recovered, and how many people have been vaccinated to protect themselves from this virus.*
+
+   ***The main aim*** *of the project is to increase the amount of vaccination by finding a relationship between vaccination and the rate of spread of the virus and visualizing it at a level that the public can understand.*
+
+  ***Another aim*** *is to analyze the dates when the virus peeks and to emphasize that the precaution against the virus should be increased during these dates.*
+
+## ***Project Data & Access To Data***
+*I have used the data of [TURCOVID19](https://turcovid19.com/acikveri/). Worked on 2 Datasets. Both of these datasets are time series datasets.*
+ 
+*The first Dataset includes Date column and columns with numerical information about the cases.* 
+  
+*Second dataset that used. This data was received via [TURCOVID19](https://turcovid19.com/acikveri/). It contains vaccination data such as total dose, daily dose and total 1st dose by province and date.*
+
+
+[TUIK](https://data.tuik.gov.tr/Kategori/GetKategori?p=Nufus-ve-Demografi-109) data was used to reach the current population of the provinces.*
+
+*Geographic location data required to draw maps were obtained from [HUMDATA](https://data.humdata.org/dataset/turkey-administrative-boundaries-levels-0-1-2/resource/6cc83f12-885f-475b-98f7-9bad99d682b9)*
+
+## ***Pre-Actions Taken***
+*When I first got Data, there were columns I didn't want. In addition, daily patient data was missing for approximately 260 days. I edited this data by writing a function in Python.This code is as follows:* 
+
+
+```{R,eval=FALSE,ECHO=FALSE}
+import pandas as pd
+df=pd.read_excel("data/gunluk_veri.xlsx",
+                usecols = "C:P")
+for i in range(len(df["Günlük Vaka"])):
+    if i==0 :
+        df["Günlük Vaka"][i]=df["Toplam Vaka"][i]
+    else:
+        df["Günlük Vaka"][i]=df["Toplam Vaka"][i]-df["Toplam Vaka"][i-1]
+df.to_excel("data/gunluk_veri_son.xlsx")"
+```
+
+
+
+```{r,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(forcats)
+library(scales)
+library(rvest)
+library(sf)
+library(viridis)
+library(plotly)
+
+```
+
+
+*Data had rows and columns of information. To get rid of these, the correct columns are taken with the range argument while importing the data.However, there were columns that I did not want when I first bought it. Also, the Date column contained Time and was not in the format I could use in Graphs.*
+
+*So far, I have dealt with the Daily Cases, Daily Deaths, Daily Healing Total Cases, Total Deaths, Total Severe Patients and Total Healing columns. These columns consist of purely numerical data. It also contains Date Time and was not in a format I could use in Graphs.*
+
+*Seriously Patient and Entube columns were actually the continuation of each other. The data with NA in the first column were in the second column, and the data with NA in the second column were also in the first column.*
+
+*By combining these columns using the "coalesce" command, a single Serious Patient column was obtained. Unnecessary and missing columns have been removed from the data set.*
+```{r,results = 'hide'}
+data=read_excel("data/gunluk_veri_son.xlsx",range="B1:O646")
+data=as_tibble(data)
+
+data=data%>%
+  rename(Agır_hasta="Ağır Hasta")%>%
+  mutate(Ağır_Hasta= coalesce(Entube,Agır_hasta))%>%
+  select(-c("Toplam_Test","YBU","Entube","Agır_hasta","Toplam_Hasta","Gunluk_Hasta"))
+head(data)
+```
+
+```{r,results = 'hide'}
+options(scipen = 999) # turn off scientific notation such as 4e+25
+Sys.setlocale("LC_TIME", "UK") #This code is required so that the month data on the x-axis is not Turkish in the charts.
+```
+*Also, the Date column contained Time and was not in the format I could use in Graphs.*
+
+*Line graphs were created using the Daily Case, Daily Death, Daily Recovered Total Case, Total Death, Total Serious Patient and Total Recovered columns and the Date column.*
+
+
+```{r,warning=FALSE}
+line_gunluk=data%>%
+  select("Tarih", "Günlük Vaka")%>%
+  rename(Daily_Case="Günlük Vaka",Date="Tarih") %>%
+  ggplot(aes(x=as.Date(Date),y=Daily_Case))+
+  geom_line(stat="identity",color=("#8E1803"))+
+  labs(x = "Date", y = "Daily Case",
+    title = "Number of daily coronavirus cases in Turkey")+
+  scale_x_date(breaks=date_breaks("3 months"),
+      labels=date_format("%b %y"))+
+  theme_minimal()
+
+ggplotly(line_gunluk)
+```
+```{r,warning=FALSE}
+line_vefatg=data%>%
+  select("Tarih", "Gunluk_Vefat")%>%
+  rename(Daily_Death="Gunluk_Vefat",Date="Tarih") %>%
+  ggplot(aes(x=as.Date(Date),y=Daily_Death))+
+  geom_line(stat="identity")+
+  labs(x = "Date", y = "Daily Death",
+    title = "Number of daily coronavirus deaths in Turkey")+
+  scale_x_date(breaks=date_breaks("2.5 months"),
+      labels=date_format("%b %y"))+
+  theme_minimal()
+
+ggplotly(line_vefatg)
+```
+```{r,warning=FALSE}
+line_iyileseng=data%>%
+  select("Tarih", Gunluk_iyilesen)%>%
+  rename(Daily_recovery="Gunluk_iyilesen",Date="Tarih")%>%
+  drop_na()%>%
+  ggplot(aes(x=as.Date(Date),y=Daily_recovery))+
+  geom_line(stat="identity",color=("#0E6655"))+
+  labs(x = "Date", y = "Daily Recoveries",
+    title = "Number of daily coronavirus recoveries in Turkey")+
+  scale_x_date(breaks=date_breaks("2.5 months"),
+      labels=date_format("%b %y"))+
+  theme_minimal()
+
+ggplotly(line_iyileseng)
+```
+
+```{r,warning=FALSE}
+line_toplam=data%>%
+  select("Tarih", "Toplam Vaka")%>%
+  rename(Total_Case="Toplam Vaka",Date="Tarih") %>%
+  ggplot(aes(x=as.Date(Date),y=Total_Case))+
+  geom_line(stat="identity",color=("#8E1803"))+
+  labs(x = "Date", y = "Total Case",
+    title = "Number of Total coronavirus cases in Turkey")+
+  scale_x_date(breaks=date_breaks("3 months"),
+      labels=date_format("%b %y"))+
+  theme_minimal()
+
+ggplotly(line_toplam)
+```
+
+```{r,warning=FALSE}
+line_vefatt=data%>%
+  select("Tarih", "Toplam_Vefat")%>%
+  rename(Total_Death="Toplam_Vefat",Date="Tarih") %>%
+  ggplot(aes(x=as.Date(Date),y=Total_Death))+
+  geom_line(stat="identity")+
+  labs(x = "Date", y = "Total Death",
+    title = "Number of Total coronavirus deaths in Turkey")+
+  scale_x_date(breaks=date_breaks("3 months"),
+      labels=date_format("%b %y"))+
+  theme_minimal()
+
+ggplotly(line_vefatt)
+```
+
+```{r,warning=FALSE}
+line_agırg=data%>%
+  select("Tarih", Ağır_Hasta)%>%
+  rename(Daily_Serious_Patient="Ağır_Hasta",Date="Tarih") %>%
+  drop_na()%>%
+  ggplot(aes(x=as.Date(Date),y=Daily_Serious_Patient))+
+  geom_line(stat="identity",colour="#E7000D")+
+  labs(x = "Date", y = "Daily Serious Patient",
+    title = "Number of daily coronavirus intensive care patients in Turkey")+
+  scale_x_date(breaks=date_breaks("3 months"),
+      labels=date_format("%b %y"))+
+  theme_minimal()
+
+ggplotly(line_agırg)
+```
+
+```{r,warning=FALSE}
+line_iyilesent=data%>%
+  select("Tarih", Toplam_iyilesen)%>%
+  rename(Total_Recoveries="Toplam_iyilesen",Date="Tarih") %>%
+  drop_na()%>%
+  ggplot(aes(x=as.Date(Date),y=Total_Recoveries))+
+  geom_line(stat="identity",color=("#0E6655"))+
+  labs(x = "Date", y = "Total Recoveries",
+    title = "Number of total coronavirus Recoveries in Turkey")+
+  scale_x_date(breaks=date_breaks("3 months"),
+      labels=date_format("%b %y"))+
+  theme_minimal()
+
+ggplotly(line_iyilesent)
+```
+
+*The second Dataset also had information columns and rows. Again the range argument is used. The date column contained time information, it was edited to be date only.*
+
+```{r,warning=FALSE,results = 'hide'}
+
+data_vac=read_excel("data/gunluk_asi.xlsx",range="C1:L19130")
+data_vac=as_tibble(data_vac)
+data_vac$Tarih<-as.POSIXct(format(as.POSIXct(data_vac$Tarih,format='%m/%d/%Y %H:%M:%S'),format='%Y-%m-%d')) #Hocam burada tarih formatını değiştiriyorum charactere döndüğü için tekrar time datasına çeviriyorum. String olunca graphlar çalışmıyor.
+class(data_vac$Tarih)
+head(data_vac)
+```
+*Data's Province column also included "Turkey" vaccination data. They were transferred to a separate dataset.*
+
+```{r,warning=FALSE,results = 'hide'}
+turkey_vac= data_vac %>%
+  select("İl","Tarih","Toplam Doz","Toplam 1. Doz","Toplam 2. Doz", "Günlük 1. Doz","Günlük 2. Doz")%>%
+  filter(İl=="Türkiye")
+  head(turkey_vac)
+```
+
+*Line graphs containing first dose and total dose information were created throughout Turkey.*
+
+
+```{r,warning=FALSE}
+line_asıt= data_vac %>%
+  select("İl","Tarih","Toplam Doz")%>%
+  rename(Total_Dose="Toplam Doz",Date="Tarih")%>%
+  filter(İl=="Türkiye")%>%
+  ggplot(aes(x=as.Date(Date),y=Total_Dose))+
+  geom_line(stat="identity",colour="#2980B9")+
+  labs(x = "Date", y = "Total Dose",
+    title = "Number of total coronavirus vaccination dose in Turkey")+
+  scale_x_date(breaks=date_breaks("2 months"),
+      labels=date_format("%b %y"))+
+  theme_minimal()
+
+ggplotly(line_asıt)
+```
+```{r,warning=FALSE}
+line_asıg= data_vac %>%
+  select("İl","Tarih","Günlük 1. Doz")%>%
+  rename(First_Dose="Günlük 1. Doz",Date="Tarih")%>%
+  filter(İl=="Türkiye")%>%
+  ggplot(aes(x=as.Date(Date),y=First_Dose))+
+  geom_line(stat="identity",colour="#2980B9")+
+  labs(x = "Date", y = "First Dose",
+    title = "Number of daily first dose of coronavirus vaccination in Turkey")+
+  scale_x_date(breaks=date_breaks("1 months"),
+      labels=date_format("%m %y"))+
+  theme_minimal()
+
+ggplotly(line_asıg)
+```
+
+```{r,warning=FALSE,results = 'hide'}
+data_vac%>%
+  distinct(İl)
+```
+
+*7 lists were created by including the provinces in the regions. The "Region" column was created using these lists. First dose and total dose line graph was created on the basis of region.*
+
+```{r,warning=FALSE}
+marmara = list("Istanbul" , "Balıkesir", "Bursa", "Tekirdağ", "Çanakkale",
+          "Yalova", "Kocaeli", "Kırklareli", "Edirne", "Bilecik", "Sakarya")
+
+ege = list("Izmir", "Manisa", "Aydın", "Denizli", "Uşak", "Afyon", "Kütahya", "Muğla")
+
+ic_anadolu = list("Ankara", "Konya", "Kayseri", "Eskişehir", "Sivas", "Kırıkkale", "Aksaray",
+             "Karaman", "Kırşehir", "Niğde", "Nevşehir", "Yozgat", "Çankırı")
+
+karadeniz = list("Amasya", "Artvin", "Bartın", "Bayburt", "Bolu", "Çorum","Düzce", "Gümüşhane", "Giresun",
+            "Karabük", "Kastamonu", "Ordu", "Rize", "Samsun", "Sinop", "Tokat", "Trabzon", "Zonguldak")
+
+dogu_anadolu = list("Ağrı", "Ardahan", "Bitlis", "Bingöl", "Elazığ", "Erzincan", "Erzurum",
+               "Hakkari", "Iğdır", "Kars", "Malatya", "Muş","Tunceli", "Van")
+
+gdogu_anadolu = list("Gaziantep", "Diyarbakır", "Şanlıurfa", "Batman", "Adıyaman",
+                "Siirt", "Mardin", "Kilis", "Şırnak")
+
+akdeniz = list("Antalya", "Adana", "Mersin", "Hatay", "Burdur", "Osmaniye",
+          "Kahramanmaraş", "Isparta","Içel")
+```
+
+```{r,warning=FALSE}
+data_vacbolge=data_vac %>%
+  mutate(Bölge=case_when(
+    data_vac$İl %in% marmara ~ "Marmara",
+    data_vac$İl%in%ege ~ "Ege",
+    data_vac$İl%in%ic_anadolu ~ "Ic_Anadolu",
+    data_vac$İl%in%karadeniz ~ "Karadeniz",
+    data_vac$İl%in%dogu_anadolu ~ "Dogu_Anadolu",
+    data_vac$İl%in%gdogu_anadolu ~ "Gdogu_Anadolu",
+    data_vac$İl%in%akdeniz ~ "Akdeniz")) %>%
+  group_by(Bölge,Tarih)%>%
+  drop_na(Bölge)%>%
+  rename(Birinci_Doz="Toplam 1. Doz",Region="Bölge",Date="Tarih")%>%
+  summarise(First_dose=sum(Birinci_Doz),.groups="keep")%>%
+  ggplot(aes(x=as.Date(Date),y=First_dose, color=Region))+
+  geom_line(stat="identity")+
+  labs(x = "Date", y = "Total First Dose",
+       title = "Number of total first dose of coronavirus vaccination in 7 Region")+
+  scale_x_date(breaks=date_breaks("1 months"),
+      labels=date_format("%m %y"))+
+  theme_minimal()
+
+ggplotly(data_vacbolge)
+```
+
+```{r,warning=FALSE}
+data_vacbolge=data_vac %>%
+  mutate(Bölge=case_when(
+    data_vac$İl %in% marmara ~ "Marmara",
+    data_vac$İl%in%ege ~ "Ege",
+    data_vac$İl%in%ic_anadolu ~ "Ic_Anadolu",
+    data_vac$İl%in%karadeniz ~ "Karadeniz",
+    data_vac$İl%in%dogu_anadolu ~ "Dogu_Anadolu",
+    data_vac$İl%in%gdogu_anadolu ~ "Gdogu_Anadolu",
+    data_vac$İl%in%akdeniz ~ "Akdeniz")) %>%
+  group_by(Bölge,Tarih)%>%
+  drop_na(Bölge)%>%
+  rename(Birinci_Doz="Günlük 1. Doz",Region="Bölge",Date="Tarih")%>%
+  summarise(First_dose=sum(Birinci_Doz),.groups="keep")%>%
+  ggplot(aes(x=as.Date(Date),y=First_dose, color=Region))+
+  geom_line(stat="identity")+
+   facet_grid(Region ~ .)+
+  labs(x = "Date", y = "Daily First Dose",
+      title = "Number of daily first dose of coronavirus vaccination in 7 Region")+
+  scale_x_date(breaks=date_breaks("1 months"),
+      labels=date_format("%m %y"))+
+  theme_minimal()
+
+ggplotly(data_vacbolge)
+```
+
+
+*The 5 Cities with the most and least vaccinations are shown in the bar chart.*
+```{r}
+data_vacil_h=data_vac %>%
+  select("İl","Tarih","Toplam 1. Doz") %>%
+  filter(İl!=c("Türkiye")& Tarih=="2021-09-13")%>%
+  rename(First_dose="Toplam 1. Doz",Province="İl")%>%
+  arrange(First_dose)%>%
+  tail(5)%>%
+  ggplot(aes(x=Province,y=First_dose))+
+  geom_bar(stat="identity",fill="#1E8449")+
+  labs(x = "City", y = "Total First Dose",
+    title = "5 provinces with the highest number of vaccinations")+
+  theme_minimal()
+ggplotly(data_vacil_h)
+```
+
+```{r}
+data_vacil_l=data_vac %>%
+  select("İl","Tarih","Toplam 1. Doz") %>%
+  filter(İl!=c("Türkiye") & Tarih=="2021-09-13")%>%
+  rename(First_dose="Toplam 1. Doz",Province="İl")%>%
+  arrange(desc(First_dose))%>%
+  tail(5)%>%
+  ggplot(aes(x=Province,y=First_dose))+
+  geom_bar(stat="identity",fill="#A93226")+
+  labs(x = "City", y = "Total First Dose",
+    title = "5 provinces with the least vaccination")+
+  theme_minimal()
+ 
+ggplotly(data_vacil_l)
+```
+
+```{r}
+map_data= data_vac %>%
+  select("İl","Toplam 1. Doz") %>%
+  filter(İl!=c("Türkiye"))%>%
+  rename(Birinci_Doz="Toplam 1. Doz",adm1_tr="İl")%>%
+  group_by(adm1_tr)%>%
+  summarise(İl_bdoz=sum(Birinci_Doz),.groups="keep")
+```
+
+*Necessary corrections have been made to use the Join function.*
+```{r}
+map_data$adm1_tr=str_to_upper(map_data$adm1_tr,locale="tr")
+```
+
+*The names of the provinces were arranged as Turkish characters and capital letters both in the Spatial Data and in the Vaccination Data.*
+```{r}
+map_data$adm1_tr[map_data$adm1_tr=="AFYON"]="AFYONKARAHİSAR"
+map_data$adm1_tr[map_data$adm1_tr=="ESKİŞEHİR"]="ESKİŞEHIR"
+map_data$adm1_tr[map_data$adm1_tr=="IÇEL"]="MERSİN"
+map_data$adm1_tr[map_data$adm1_tr=="ISTANBUL"]="İSTANBUL"
+map_data$adm1_tr[map_data$adm1_tr=="IZMİR"]="İZMİR"
+```
+
+```{r,warning=FALSE,message=FALSE}
+nufus=read_excel("data/il_nufus.xls",range="A6:B86",col_names = F)
+colnames(nufus)=c("adm1_tr","nufus")
+nufus=as_tibble(nufus)
+nufus$adm1_tr=str_to_upper(nufus$adm1_tr,locale="tr")
+nufus$adm1_tr[nufus$adm1_tr=="ESKİŞEHİR"]="ESKİŞEHIR"
+map_data=full_join(map_data,nufus,by="adm1_tr")
+
+```
+*To find the vaccination rate of the provinces, the number of vaccinations was divided by the provincial population.*
+```{r}
+map_data$oran=map_data$İl_bdoz/map_data$nufus
+map_data$oran=round(map_data$oran,digits=1)
+```
+
+
+*Spatial data was stored as "turkey".*
+```{r,warning=FALSE,message=FALSE,results = 'hide'}
+turkey <- st_read("data/tur_polbnda_adm1.shp")
+```
+*Checked which cities are typed wrong.*
+```{r,results = 'hide'}
+turkey$adm1_tr[map_data$adm1_tr!=turkey$adm1_tr]
+map_data$adm1_tr[map_data$adm1_tr!=turkey$adm1_tr]
+```
+
+
+
+```{r}
+plot(st_geometry(turkey))
+```
+*Two datasets were joined by using the **full_join** *method by using "adm1_tr" column.*
+```{r}
+map_last=full_join(map_data,turkey,by="adm1_tr")
+```
+
+*Static Turkey map including vaccination rates was drawn by using ggplot.*
+```{r,warning=FALSE,message=FALSE}
+colors=c("#d7263d","#f46036","#F4D03F","#95e06c")
+breaks=c(0,55,65,70)
+labels <-  sprintf("%s\n%s", map_last$adm1_tr, map_last$oran)
+
+map_last1=map_last%>%
+  ggplot()+
+  geom_sf(aes(fill=oran,geometry=geometry),color="black")+
+  labs(title = "Total 1st Dose Vaccination by Province",
+       caption = "Data Source: turcovid19.com")+
+  theme_void() +
+  theme(title = element_text(face="italic"))+
+  geom_sf_label(aes(label = labels, geometry = geometry, size=1), colour = "#6E2C00", size=1.8,fill="snow")+
+  scale_fill_stepsn(colors=colors,breaks=breaks)
+map_last1
+```
+
+
+```{r}
+
+colors=c("#d7263d","#f46036","#F4D03F","#95e06c")
+breaks=c(0,55,65,70)
+
+map_last2=map_last%>%
+  ggplot()+
+  geom_sf(aes(fill=oran,geometry=geometry),color="black")+
+  labs(title = "Total 1st Dose Vaccination by Province",
+       caption = "Data Source: turcovid19.com")+
+  theme_void() +
+  theme(title = element_text(face="italic"))+
+  geom_sf_label(aes(label = oran, geometry = geometry, size=1), colour = "#6E2C00", size=1.8,fill="snow")+
+  scale_fill_stepsn(colors=colors,breaks=breaks)
+```
+
+*Dynamic Turkey map including vaccination rates was drawn by using plotly.*
+```{r,warning=FALSE,message=FALSE}
+#ggplotly(map_last2)
+ 
+```
+
+
+## ***Results***
+
+-*The daily case count is peeking in December 2020, April 2021 and November 2021. *
+-*Since the number of cases is directly related to the number of deaths and recovery, other variables are also peeking at these dates.* 
+-*In these line graphs , we can observe that the graphs make exactly the same movement. As a result, the correlation is very high.*
+-*There is a very high correlation between Daily Case, Daily Death and Daily Recovery.*
+-*As expected, the Total Cases, Deaths, and Recovery numbers are progressing cumulatively.*
+*The total number of deaths is constantly increasing. However, the death rate changes periodically.*
+-*Vaccination occurs at a normal rate until June 2021, very quickly from July 2021 to October 2021, and very slowly after November 2021.* 
+-*It was observed that the number of daily deaths decreased rapidly in June 2021, when daily vaccination peaked.*
+-*Marmara is the region with the most vaccination, and Eastern Anatolia is the region with the least vaccination.*
+-*Istanbul is the province with the highest number of vaccinations in Turkey.*
+-*Bayburt is the province with the lowest number of vaccinations in Turkey.*
+-*There is a visible link between level of education , number of books read and rate of vaccination. Naturally, the rate of vaccination increases as you move from east to west.*
+
+
+## ***Conclusion***
+*As a result, there is a high correlation between Turkey Covid-19 and Vaccination. As vaccination increases, the number of cases and the lethality of the disease decrease. Vaccination rates are higher in provinces with higher education levels. We must be vaccinated to reduce the lethal effect of the virus. The measures taken against the virus should be increased when the number of cases peaks. On November 13, 2021, the last date for which data is available, the highest number of vaccinations is in Istanbul, and the lowest in Bayburt. On a regional basis, Marmara has the highest number of vaccinations, while Eastern Anatolia has the lowest.*
+
+## ***References***
+
+[https://turcovid19.com/acikveri/](https://turcovid19.com/acikveri/)
+
+[https://ourworldindata.org/coronavirus](https://ourworldindata.org/coronavirus)
+
+[https://data.humdata.org/dataset/turkey-administrative-boundaries-levels-0-1-2/resource/6cc83f12-885f-475b-98f7-9bad99d682b9](https://data.humdata.org/dataset/turkey-administrative-boundaries-levels-0-1-2/resource/6cc83f12-885f-475b-98f7-9bad99d682b9)
+
+[https://data.tuik.gov.tr/Kategori/GetKategori?p=Nufus-ve-Demografi-109](https://data.tuik.gov.tr/Kategori/GetKategori?p=Nufus-ve-Demografi-109)
+
+[https://chartio.com/learn/charts/how-to-choose-colors-data-visualization/](https://chartio.com/learn/charts/how-to-choose-colors-data-visualization/)
